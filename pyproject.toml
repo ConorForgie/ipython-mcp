@@ -1,0 +1,70 @@
+[project]
+name = "ipython-mcp"
+version = "0.1.0"
+description = "MCP server giving Claude a stateful IPython kernel per session, with per-env isolation."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Conor" }]
+license = { text = "MIT" }
+dependencies = [
+    "mcp>=1.2",
+    "jupyter_client>=8",
+    "pyzmq>=25",
+]
+
+[project.scripts]
+ipython-mcp = "ipython_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ipython_mcp"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.pypi-dependencies]
+ipython-mcp = { path = ".", editable = true }
+
+[tool.pixi.dependencies]
+python = ">=3.11,<3.13"
+mcp = ">=1.2"
+jupyter_client = ">=8"
+pyzmq = ">=25"
+# Included so env=None (the server's own interpreter) is a usable session
+# without the user installing ipykernel separately.
+ipykernel = ">=6"
+
+[tool.pixi.feature.dev.dependencies]
+pytest = "*"
+pytest-timeout = "*"
+ipykernel = "*"
+ruff = "*"
+
+[tool.pixi.environments]
+default = { features = [], solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.tasks]
+server = "ipython-mcp"
+
+[tool.pixi.feature.dev.tasks]
+test = "pytest -q"
+lint = "ruff check src tests"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # jupyter_client emits unraisable selector errors during teardown of
+    # background ZMQ threads; benign but noisy.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
