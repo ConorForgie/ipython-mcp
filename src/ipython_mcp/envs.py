@@ -71,4 +71,4 @@ def _install_hint(env: ResolvedEnv) -> str:
     env_root = env.python.parent.parent
     if (env_root / "conda-meta").exists():
         return f"mamba install -p {env_root} -c conda-forge ipykernel"
-    return f"{env.python} -m pip install ipykernel"
+    return f"pixi add ipykernel"
