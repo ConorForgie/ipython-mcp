@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from jupyter_client.kernelspec import KernelSpec
 from jupyter_client.manager import KernelManager
 
 KERNEL_READY_TIMEOUT_S = 30
@@ -30,13 +31,17 @@ class Kernel:
 
     def start(self, python_path: Path) -> None:
         km = KernelManager()
-        km.kernel_cmd = [
+        spec = KernelSpec()
+        spec.argv = [
             str(python_path),
             "-m",
             "ipykernel_launcher",
             "-f",
             "{connection_file}",
         ]
+        spec.display_name = "custom"
+        spec.language = "python"
+        km._kernel_spec = spec
         km.start_kernel()
         kc = km.client()
         kc.start_channels()
