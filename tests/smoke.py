@@ -6,7 +6,6 @@ Runs via ``pixi run -e dev python tests/smoke.py``.
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 
 from mcp import ClientSession
@@ -16,9 +15,9 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 def _payload(result):
     """Pull the structured payload (or text) out of a CallToolResult.
 
-    FastMCP wraps non-object returns as ``{"result": <value>}`` in
-    ``structuredContent`` (since structured content must be an object); unwrap
-    that so callers see the raw value.
+    For tools with structured output (dict return type), the payload is in
+    ``structuredContent``.  For unstructured tools (plain str return), the
+    payload is the raw text content.
     """
     if getattr(result, "structuredContent", None):
         sc = result.structuredContent
@@ -26,10 +25,7 @@ def _payload(result):
             return sc["result"]
         return sc
     if result.content and hasattr(result.content[0], "text"):
-        try:
-            return json.loads(result.content[0].text)
-        except json.JSONDecodeError:
-            return result.content[0].text
+        return result.content[0].text
     return None
 
 
@@ -50,63 +46,68 @@ async def main() -> int:
                 "shutdown",
             ], tool_names
 
-            r = _payload(
-                await session.call_tool(
-                    "execute", {"session": "s1", "code": "x = 1 + 1\nx"}
-                )
+            # --- success: expression result ---
+            result = await session.call_tool(
+                "execute", {"session": "s1", "code": "x = 1 + 1\nx"}
             )
-            print("execute(s1):", r)
-            assert r["status"] == "ok"
-            assert r["result"] == "2"
+            r = _payload(result)
+            print("execute(s1):", repr(r))
+            assert not result.isError
+            assert r == "2", f"expected '2', got {r!r}"
 
-            r = _payload(
-                await session.call_tool(
-                    "execute", {"session": "s1", "code": "x"}
-                )
+            # --- state survives across calls ---
+            result = await session.call_tool(
+                "execute", {"session": "s1", "code": "x"}
             )
-            print("state survived:", r["result"])
-            assert r["result"] == "2"
+            r = _payload(result)
+            print("state survived:", repr(r))
+            assert r == "2", f"expected '2', got {r!r}"
 
+            # --- list sessions ---
             r = _payload(await session.call_tool("list_sessions", {}))
             print("list:", r)
             assert len(r) == 1 and r[0]["name"] == "s1"
 
-            r = _payload(
-                await session.call_tool(
-                    "execute",
-                    {
-                        "session": "bad",
-                        "code": "1",
-                        "env": "definitely-not-an-env-12345",
-                    },
-                )
+            # --- env error ---
+            result = await session.call_tool(
+                "execute",
+                {
+                    "session": "bad",
+                    "code": "1",
+                    "env": "definitely-not-an-env-12345",
+                },
             )
-            print("env_error:", r["status"], "-", r["error"][:120])
-            assert r["status"] == "env_error"
+            print("env_error isError:", result.isError, "-", _payload(result)[:120])
+            assert result.isError
+            assert "definitely-not-an-env-12345" in _payload(result)
 
-            r = _payload(
-                await session.call_tool(
-                    "execute",
-                    {
-                        "session": "loop",
-                        "code": "import time\nfor i in range(20):\n    time.sleep(0.5)",
-                        "timeout_s": 1.5,
-                    },
-                )
+            # --- timeout ---
+            result = await session.call_tool(
+                "execute",
+                {
+                    "session": "loop",
+                    "code": "import time\nfor i in range(20):\n    time.sleep(0.5)",
+                    "timeout_s": 1.5,
+                },
             )
-            print("timeout:", r["status"])
-            assert r["status"] == "timeout"
+            print("timeout isError:", result.isError)
+            assert result.isError
+            assert "Timeout" in _payload(result)
 
+            # --- reset ---
             r = _payload(await session.call_tool("reset", {"session": "s1"}))
             assert r["ok"]
-            r = _payload(
-                await session.call_tool(
-                    "execute", {"session": "s1", "code": "x"}
-                )
-            )
-            print("after reset:", r["status"], "-", (r["error"] or "")[-40:])
-            assert r["status"] == "error" and "NameError" in r["error"]
 
+            # --- error: NameError after reset ---
+            result = await session.call_tool(
+                "execute", {"session": "s1", "code": "x"}
+            )
+            r = _payload(result)
+            print("after reset isError:", result.isError, "-", r[-120:])
+            assert result.isError
+            assert "NameError" in r
+
+            # --- shutdown and cleanup ---
             r = _payload(await session.call_tool("shutdown", {"session": "s1"}))
             assert r["ok"]
             r = _payload(await session.call_tool("shutdown", {"session": "loop"}))

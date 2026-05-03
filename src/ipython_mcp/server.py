@@ -8,6 +8,7 @@ from dataclasses import asdict
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 
 from .envs import EnvError
 from .sessions import SessionManager
@@ -31,13 +32,13 @@ def _default_timeout_s() -> float:
     return max(_MIN_TIMEOUT_S, ms / 1000.0 - 2.0)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def execute(
     session: str,
     code: str,
     env: str | None = None,
     timeout_s: float | None = None,
-) -> dict[str, Any]:
+) -> str:
     """Run ``code`` inside the kernel for ``session``.
 
     Creates the session on first use. ``env`` selects the Python environment for
@@ -46,23 +47,25 @@ def execute(
     On subsequent calls the session's existing env is used and a ``warning`` is
     returned if a different env was requested.
 
-    Returns ``{ status, stdout, stderr, result, error, execution_count, warning }``.
-    ``status`` is one of ``"ok"``, ``"error"``, ``"timeout"``, ``"env_error"``.
+    Returns the result, stdout, or stderr string on success.
+    Raises an error with the traceback on failure or timeout.
     """
     effective_timeout = timeout_s if timeout_s is not None else _default_timeout_s()
     try:
         response = _manager.execute(session, code, env, effective_timeout)
     except EnvError as exc:
-        return {
-            "status": "env_error",
-            "stdout": "",
-            "stderr": "",
-            "result": None,
-            "error": str(exc),
-            "execution_count": None,
-            "warning": None,
-        }
-    return asdict(response)
+        raise ToolError(str(exc)) from exc
+
+    if response.status == "error":
+        raise ToolError(response.error or "Unknown error")
+    if response.status == "timeout":
+        partial = response.format_output()
+        msg = f"Timeout after {effective_timeout:.0f}s"
+        if partial.strip():
+            msg += f"\n\nPartial output:\n{partial}"
+        raise ToolError(msg)
+
+    return response.format_output()
 
 
 @mcp.tool()

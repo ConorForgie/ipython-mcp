@@ -20,6 +20,22 @@ class ExecuteResponse:
     execution_count: int | None
     warning: str | None = None
 
+    def format_output(self) -> str:
+        parts: list[str] = []
+        if self.stdout:
+            parts.append(self.stdout.rstrip("\n"))
+        if self.result:
+            parts.append(self.result)
+        if self.stderr:
+            parts.append(self.stderr.rstrip("\n"))
+
+        output = "\n".join(parts)
+        if not output.strip():
+            return "(executed ok)"
+        if self.warning:
+            output = f"Warning: {self.warning}\n\n{output}"
+        return output
+
 
 @dataclass
 class SessionInfo:
